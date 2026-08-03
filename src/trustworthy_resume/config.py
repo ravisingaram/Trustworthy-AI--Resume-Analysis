@@ -10,9 +10,9 @@ class ExperimentConfig:
     model_name: str = "Qwen/Qwen3-0.6B"
     output_root: str = "outputs"
     run_id: str = "qwen_v2"
-    num_candidates: int = 40
-    fairness_templates_per_attribute: int = 5
-    repeatability_samples: int = 5
+    num_candidates: int = 100
+    fairness_templates_per_attribute: int = 10
+    repeatability_samples: int = 10
     repeatability_repeats: int = 3
     random_seed: int = 42
     device: str = "auto"

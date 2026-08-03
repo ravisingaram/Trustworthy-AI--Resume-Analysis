@@ -24,16 +24,18 @@ cd Trustworthy-AI--Resume-Analysis
 python3 -m pip install -r requirements.txt
 PYTHONPATH=src python3 -m pytest -q
 python3 run_experiment.py --backend test --run-id smoke_test --num-candidates 8 --fairness-templates 2 --reliability-samples 2
-python3 run_experiment.py --backend qwen --run-id qwen_mac
+python3 run_experiment.py --backend qwen --run-id qwen_n100_mac
 ```
 
 The `test` backend validates the complete pipeline but must never be used for report metrics. Use `qwen` for the real experiment.
 
 ## Google Colab T4 run
 
-Open `AI_Resume_Screener_Trustworthy_AI_v2_Colab.ipynb`, set the project path, and run all cells. Select **Runtime > Change runtime type > T4 GPU** first. The notebook checks that CUDA is active.
+Open `AI_Resume_Screener_Trustworthy_AI_v2_Colab.ipynb` and run all cells. It automatically selects CUDA, MPS, or CPU. In Colab, select **Runtime > Change runtime type > T4 GPU** first. Device-specific run IDs prevent Mac results from being mistaken for CUDA results.
 
-For a first GPU check, use 4 candidates, 1 fairness template, and 1 reliability sample. Then change to the report configuration of 40, 5, and 5. Reusing the same `run_id` resumes completed JSONL rows.
+GitHub cloning is optional. On your Mac, compress the whole project folder into one ZIP; it must contain `run_experiment.py`, `requirements.txt`, and `src/`. Upload the notebook to Colab and run its first code cell. When the upload picker appears, select that ZIP. The notebook extracts it and locates the project automatically. If an extracted project is already under `/content`, it is reused without prompting.
+
+For a first GPU check, use 4 candidates, 1 fairness template, and 1 reliability sample. The report configuration uses 100 candidates, 10 matched-pair templates per protected attribute, and 10 reliability samples. Reusing the same `run_id` resumes completed JSONL rows.
 
 ## Important output files
 
