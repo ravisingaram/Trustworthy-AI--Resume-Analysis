@@ -74,7 +74,12 @@ def _load_frame(path: Path) -> pd.DataFrame:
 def _load_jsonl(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Missing output file: {path}")
-    return pd.read_json(path, lines=True)
+    frame = pd.read_json(path, lines=True)
+    if "score" in frame.columns and "pipeline_status" in frame.columns and "rank" not in frame.columns:
+        frame["rank"] = np.nan
+        ok = frame["pipeline_status"] == "ok"
+        frame.loc[ok, "rank"] = frame.loc[ok, "score"].rank(method="first", ascending=False)
+    return frame
 
 
 def _load_prepared_data(config: ExperimentConfig) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -130,12 +135,12 @@ def _write_prepared_data(config: ExperimentConfig, clean: pd.DataFrame, attacked
 
 
 def _baseline_stage(client: Any, config: ExperimentConfig, clean: pd.DataFrame, attacked: pd.DataFrame, fairness: pd.DataFrame, metamorphic: pd.DataFrame, repeated: pd.DataFrame) -> Dict[str, Any]:
-    run_baseline(client, clean, "resume_text", config.output_dir / "baseline_clean.jsonl", config.use_cache)
-    run_baseline(client, attacked, "attacked_resume_text", config.output_dir / "baseline_attacked.jsonl", config.use_cache)
-    run_baseline(client, fairness, "raw_resume_text", config.output_dir / "fairness_baseline_raw.jsonl", config.use_cache)
-    run_baseline(client, fairness, "masked_resume_text", config.output_dir / "fairness_baseline_masked.jsonl", config.use_cache)
-    run_baseline(client, metamorphic, "resume_text", config.output_dir / "metamorphic_baseline.jsonl", config.use_cache)
-    run_baseline(client, repeated, "resume_text", config.output_dir / "repeatability_baseline.jsonl", config.use_cache)
+    run_baseline(client, clean, "resume_text", config.output_dir / "baseline_clean.jsonl", config.use_cache, config.batch_size)
+    run_baseline(client, attacked, "attacked_resume_text", config.output_dir / "baseline_attacked.jsonl", config.use_cache, config.batch_size)
+    run_baseline(client, fairness, "raw_resume_text", config.output_dir / "fairness_baseline_raw.jsonl", config.use_cache, config.batch_size)
+    run_baseline(client, fairness, "masked_resume_text", config.output_dir / "fairness_baseline_masked.jsonl", config.use_cache, config.batch_size)
+    run_baseline(client, metamorphic, "resume_text", config.output_dir / "metamorphic_baseline.jsonl", config.use_cache, config.batch_size)
+    run_baseline(client, repeated, "resume_text", config.output_dir / "repeatability_baseline.jsonl", config.use_cache, config.batch_size)
     _write_manifest(config, "complete")
     return {
         "stage": "baseline",
@@ -152,12 +157,12 @@ def _baseline_stage(client: Any, config: ExperimentConfig, clean: pd.DataFrame, 
 
 
 def _defended_stage(client: Any, config: ExperimentConfig, clean: pd.DataFrame, attacked: pd.DataFrame, fairness: pd.DataFrame, metamorphic: pd.DataFrame, repeated: pd.DataFrame) -> Dict[str, Any]:
-    run_defended(client, clean, "resume_text", config.output_dir, "clean", config.use_cache)
-    run_defended(client, attacked, "attacked_resume_text", config.output_dir, "attacked", config.use_cache)
-    run_defended(client, fairness, "raw_resume_text", config.output_dir, "fairness_raw", config.use_cache)
-    run_defended(client, fairness, "masked_resume_text", config.output_dir, "fairness_masked", config.use_cache)
-    run_defended(client, metamorphic, "resume_text", config.output_dir, "metamorphic", config.use_cache)
-    run_defended(client, repeated, "resume_text", config.output_dir, "repeatability", config.use_cache)
+    run_defended(client, clean, "resume_text", config.output_dir, "clean", config.use_cache, config.batch_size)
+    run_defended(client, attacked, "attacked_resume_text", config.output_dir, "attacked", config.use_cache, config.batch_size)
+    run_defended(client, fairness, "raw_resume_text", config.output_dir, "fairness_raw", config.use_cache, config.batch_size)
+    run_defended(client, fairness, "masked_resume_text", config.output_dir, "fairness_masked", config.use_cache, config.batch_size)
+    run_defended(client, metamorphic, "resume_text", config.output_dir, "metamorphic", config.use_cache, config.batch_size)
+    run_defended(client, repeated, "resume_text", config.output_dir, "repeatability", config.use_cache, config.batch_size)
     _write_manifest(config, "complete")
     return {
         "stage": "defended",
@@ -180,8 +185,8 @@ def _defended_stage(client: Any, config: ExperimentConfig, clean: pd.DataFrame, 
 
 
 def _clean_attacked_defended_stage(client: Any, config: ExperimentConfig, clean: pd.DataFrame, attacked: pd.DataFrame) -> Dict[str, Any]:
-    run_defended(client, clean, "resume_text", config.output_dir, "clean", config.use_cache)
-    run_defended(client, attacked, "attacked_resume_text", config.output_dir, "attacked", config.use_cache)
+    run_defended(client, clean, "resume_text", config.output_dir, "clean", config.use_cache, config.batch_size)
+    run_defended(client, attacked, "attacked_resume_text", config.output_dir, "attacked", config.use_cache, config.batch_size)
     _write_manifest(config, "complete")
     return {
         "stage": "clean_attacked_defended",
@@ -235,7 +240,7 @@ def _robustness_comparison(clean: pd.DataFrame, attacked: pd.DataFrame, label: s
     result["score_gain"] = result["score"] - result["clean_score"]
     clean_pool = clean[clean["pipeline_status"] == "ok"]
     result["attacked_rank_in_clean_pool"] = result.apply(
-        lambda row: 1 + int(((clean_pool["candidate_id"] != row["candidate_id"]) & (clean_pool["score"] > row["score"]).sum())) if pd.notna(row["score"]) else np.nan,
+        lambda row: 1 + int(((clean_pool["candidate_id"] != row["candidate_id"]) & (clean_pool["score"] > row["score"])).sum()) if pd.notna(row["score"]) else np.nan,
         axis=1,
     )
     result["rank_gain"] = result["clean_rank"] - result["attacked_rank_in_clean_pool"]

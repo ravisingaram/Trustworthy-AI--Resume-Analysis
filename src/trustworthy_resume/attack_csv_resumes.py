@@ -38,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backend", choices=["test", "qwen"], default="test", help="Use qwen for real LLM scoring or test for a fast deterministic offline backend.")
     parser.add_argument("--device", choices=["auto", "cuda", "mps", "cpu"], default="auto")
     parser.add_argument("--model-name", default="Qwen/Qwen3-0.6B", help="Model name for Qwen backend.")
+    parser.add_argument("--batch-size", type=int, default=4, help="Number of prompts generated together. Reduce this if the GPU runs out of memory.")
     parser.add_argument("--attack-type", choices=["direct_prompt_injection", "keyword_stuffing", "resume_inflation", "role_play_injection", "random"], default="random")
     parser.add_argument("--sample-size", type=int, default=0, help="Randomly sample this many resumes from the CSV before scoring. Use 0 to keep all rows.")
     parser.add_argument("--use-cache", action="store_true", help="Use existing JSONL cache files when available.")
@@ -145,10 +146,10 @@ def main() -> None:
 
     client = DeterministicTestClient() if args.backend == "test" else QwenClient(args.model_name, args.device)
 
-    baseline_clean = run_baseline(client, df, "resume_text", output_dir / "baseline_clean.jsonl", args.use_cache)
-    baseline_attacked = run_baseline(client, df, "attacked_resume_text", output_dir / "baseline_attacked.jsonl", args.use_cache)
-    defended_clean = run_defended(client, df, "resume_text", output_dir, "csv_clean", args.use_cache)
-    defended_attacked = run_defended(client, df, "attacked_resume_text", output_dir, "csv_attacked", args.use_cache)
+    baseline_clean = run_baseline(client, df, "resume_text", output_dir / "baseline_clean.jsonl", args.use_cache, args.batch_size)
+    baseline_attacked = run_baseline(client, df, "attacked_resume_text", output_dir / "baseline_attacked.jsonl", args.use_cache, args.batch_size)
+    defended_clean = run_defended(client, df, "resume_text", output_dir, "csv_clean", args.use_cache, args.batch_size)
+    defended_attacked = run_defended(client, df, "attacked_resume_text", output_dir, "csv_attacked", args.use_cache, args.batch_size)
 
     summarize_results(baseline_clean, baseline_attacked, "baseline", output_dir)
     summarize_results(defended_clean, defended_attacked, "defended", output_dir)

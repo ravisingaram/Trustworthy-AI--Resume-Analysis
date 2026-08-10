@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
 
 import numpy as np
 
@@ -62,6 +62,11 @@ class QwenClient:
         else:
             torch_dtype = getattr(torch, dtype)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        # Decoder-only models need left padding so every generated continuation
+        # begins after the same padded input width.
+        self.tokenizer.padding_side = "left"
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         load_kwargs = {"dtype": torch_dtype, "trust_remote_code": True, "low_cpu_mem_usage": True}
         if self.device == "cuda":
             load_kwargs["device_map"] = "auto"
@@ -75,15 +80,20 @@ class QwenClient:
         self.model.generation_config.top_p = None
         self.model.generation_config.top_k = None
 
-    def generate(self, prompt: str, max_new_tokens: int = 420) -> str:
+    def generate_many(self, prompts: Sequence[str], max_new_tokens: int = 420) -> List[str]:
         import torch
 
-        messages = [{"role": "user", "content": prompt}]
-        try:
-            rendered = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
-        except TypeError:
-            rendered = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = self.tokenizer([rendered], return_tensors="pt").to(self.device)
+        if not prompts:
+            return []
+        rendered_prompts = []
+        for prompt in prompts:
+            messages = [{"role": "user", "content": prompt}]
+            try:
+                rendered = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+            except TypeError:
+                rendered = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            rendered_prompts.append(rendered)
+        inputs = self.tokenizer(rendered_prompts, return_tensors="pt", padding=True).to(self.device)
         with torch.inference_mode():
             output = self.model.generate(
                 **inputs,
@@ -91,26 +101,53 @@ class QwenClient:
                 do_sample=False,
                 pad_token_id=self.tokenizer.eos_token_id,
             )
-        generated = output[0][inputs.input_ids.shape[-1] :]
-        return self.tokenizer.decode(generated, skip_special_tokens=True).strip()
+        generated = output[:, inputs.input_ids.shape[-1] :]
+        return [text.strip() for text in self.tokenizer.batch_decode(generated, skip_special_tokens=True)]
+
+    def generate(self, prompt: str, max_new_tokens: int = 420) -> str:
+        return self.generate_many([prompt], max_new_tokens=max_new_tokens)[0]
+
+    def json_many(
+        self,
+        prompts: Sequence[str],
+        required_keys: Iterable[str],
+        max_new_tokens: int = 420,
+        retries: int = 2,
+    ) -> List[Union[Dict[str, Any], Exception]]:
+        required_keys = tuple(required_keys)
+        results: List[Optional[Union[Dict[str, Any], Exception]]] = [None] * len(prompts)
+        pending = list(range(len(prompts)))
+        retry_suffix = "\nReturn exactly one valid JSON object. Required keys: " + ", ".join(required_keys)
+
+        for attempt in range(retries + 1):
+            if not pending:
+                break
+            current_prompts = [prompts[index] + (retry_suffix if attempt else "") for index in pending]
+            raw_outputs = self.generate_many(current_prompts, max_new_tokens=max_new_tokens)
+            next_pending = []
+            for index, raw in zip(pending, raw_outputs):
+                try:
+                    parsed = json.loads(first_balanced_json_object(raw))
+                    missing = [key for key in required_keys if key not in parsed]
+                    if missing:
+                        raise ValueError(f"Missing keys: {missing}")
+                    parsed["_raw_model_output"] = raw
+                    parsed["_json_retry_count"] = attempt
+                    results[index] = parsed
+                except Exception as exc:
+                    if attempt < retries:
+                        next_pending.append(index)
+                    else:
+                        results[index] = RuntimeError(f"Model JSON parsing failed: {exc}")
+            pending = next_pending
+
+        return [result if result is not None else RuntimeError("Model JSON generation produced no result") for result in results]
 
     def json(self, prompt: str, required_keys: Iterable[str], max_new_tokens: int = 420, retries: int = 2) -> Dict[str, Any]:
-        current_prompt = prompt
-        last_error: Optional[Exception] = None
-        for attempt in range(retries + 1):
-            raw = self.generate(current_prompt, max_new_tokens=max_new_tokens)
-            try:
-                parsed = json.loads(first_balanced_json_object(raw))
-                missing = [key for key in required_keys if key not in parsed]
-                if missing:
-                    raise ValueError(f"Missing keys: {missing}")
-                parsed["_raw_model_output"] = raw
-                parsed["_json_retry_count"] = attempt
-                return parsed
-            except Exception as exc:
-                last_error = exc
-                current_prompt = prompt + "\nReturn exactly one valid JSON object. Required keys: " + ", ".join(required_keys)
-        raise RuntimeError(f"Model JSON parsing failed: {last_error}")
+        result = self.json_many([prompt], required_keys, max_new_tokens=max_new_tokens, retries=retries)[0]
+        if isinstance(result, Exception):
+            raise result
+        return result
 
 
 class DeterministicTestClient:
@@ -149,3 +186,12 @@ class DeterministicTestClient:
             return {"skills": [s.strip() for s in skills_line.partition(":")[2].split(",") if s.strip()], "projects": projects, "experience": next((line.partition(":")[2].strip() for line in lines if line.startswith("Experience:")), ""), "education": next((line.partition(":")[2].strip() for line in lines if line.startswith("Education:")), ""), "relevant_evidence": projects + evidence, "suspicious_content": suspicious, "manipulation_risk_score": risk, "extraction_summary": "Deterministic extraction", "_raw_model_output": "test", "_json_retry_count": 0}
         score = float(np.clip(20 + 5 * len(evidence) + 15 * len(suspicious), 0, 100))
         return {"score": score, "reason": "Deterministic test score", "relevant_evidence": evidence, "_raw_model_output": "test", "_json_retry_count": 0}
+
+    def json_many(
+        self,
+        prompts: Sequence[str],
+        required_keys: Iterable[str],
+        max_new_tokens: int = 420,
+        retries: int = 2,
+    ) -> List[Union[Dict[str, Any], Exception]]:
+        return [self.json(prompt, required_keys, max_new_tokens=max_new_tokens, retries=retries) for prompt in prompts]

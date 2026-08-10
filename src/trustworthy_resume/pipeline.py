@@ -5,7 +5,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -162,12 +162,43 @@ def _grounded_text(value: Any, source: str) -> str:
     return "; ".join(grounded)
 
 
-def baseline_score(client: Any, resume: str, max_new_tokens: int = 280) -> Dict[str, Any]:
-    result = client.json(
-        BASELINE_PROMPT.format(job=JOB_DESCRIPTION, rubric=json.dumps(RUBRIC), resume=resume),
-        ["score", "reason", "relevant_evidence"],
-        max_new_tokens=max_new_tokens,
-    )
+EvaluationResult = Union[Dict[str, Any], Exception]
+
+
+def _client_json_many(
+    client: Any,
+    prompts: Sequence[str],
+    required_keys: Iterable[str],
+    max_new_tokens: int,
+) -> List[EvaluationResult]:
+    if hasattr(client, "json_many"):
+        return list(client.json_many(prompts, required_keys, max_new_tokens=max_new_tokens))
+    results: List[EvaluationResult] = []
+    for prompt in prompts:
+        try:
+            results.append(client.json(prompt, required_keys, max_new_tokens=max_new_tokens))
+        except Exception as exc:
+            results.append(exc)
+    return results
+
+
+def _format_model_results(
+    results: Sequence[EvaluationResult],
+    formatter: Callable[[Dict[str, Any]], Dict[str, Any]],
+) -> List[EvaluationResult]:
+    formatted: List[EvaluationResult] = []
+    for result in results:
+        if isinstance(result, Exception):
+            formatted.append(result)
+            continue
+        try:
+            formatted.append(formatter(result))
+        except Exception as exc:
+            formatted.append(exc)
+    return formatted
+
+
+def _format_baseline_result(result: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "score": round(float(np.clip(_number(result["score"]), 0, 100)), 2),
         "reason": result.get("reason", ""),
@@ -177,12 +208,20 @@ def baseline_score(client: Any, resume: str, max_new_tokens: int = 280) -> Dict[
     }
 
 
-def extract_profile(client: Any, resume: str, max_new_tokens: int = 520) -> Dict[str, Any]:
-    result = client.json(
-        EXTRACTION_PROMPT.format(job=JOB_DESCRIPTION, resume=resume),
-        ["skills", "projects", "experience", "education", "relevant_evidence", "suspicious_content", "manipulation_risk_score", "extraction_summary"],
-        max_new_tokens=max_new_tokens,
-    )
+def baseline_scores(client: Any, resumes: Sequence[str], max_new_tokens: int = 280) -> List[EvaluationResult]:
+    prompts = [BASELINE_PROMPT.format(job=JOB_DESCRIPTION, rubric=json.dumps(RUBRIC), resume=resume) for resume in resumes]
+    results = _client_json_many(client, prompts, ["score", "reason", "relevant_evidence"], max_new_tokens)
+    return _format_model_results(results, _format_baseline_result)
+
+
+def baseline_score(client: Any, resume: str, max_new_tokens: int = 280) -> Dict[str, Any]:
+    result = baseline_scores(client, [resume], max_new_tokens=max_new_tokens)[0]
+    if isinstance(result, Exception):
+        raise result
+    return result
+
+
+def _format_extraction_result(result: Dict[str, Any], resume: str) -> Dict[str, Any]:
     skills = _grounded_values(result.get("skills"), resume)
     projects = _grounded_values(result.get("projects"), resume)
     experience = _grounded_text(result.get("experience"), resume)
@@ -205,6 +244,33 @@ def extract_profile(client: Any, resume: str, max_new_tokens: int = 520) -> Dict
         "json_retry_count": result.get("_json_retry_count", 0),
         "raw_extraction_output": result.get("_raw_model_output", ""),
     }
+
+
+def extract_profiles(client: Any, resumes: Sequence[str], max_new_tokens: int = 520) -> List[EvaluationResult]:
+    prompts = [EXTRACTION_PROMPT.format(job=JOB_DESCRIPTION, resume=resume) for resume in resumes]
+    results = _client_json_many(
+        client,
+        prompts,
+        ["skills", "projects", "experience", "education", "relevant_evidence", "suspicious_content", "manipulation_risk_score", "extraction_summary"],
+        max_new_tokens,
+    )
+    formatted: List[EvaluationResult] = []
+    for result, resume in zip(results, resumes):
+        if isinstance(result, Exception):
+            formatted.append(result)
+            continue
+        try:
+            formatted.append(_format_extraction_result(result, resume))
+        except Exception as exc:
+            formatted.append(exc)
+    return formatted
+
+
+def extract_profile(client: Any, resume: str, max_new_tokens: int = 520) -> Dict[str, Any]:
+    result = extract_profiles(client, [resume], max_new_tokens=max_new_tokens)[0]
+    if isinstance(result, Exception):
+        raise result
+    return result
 
 
 def _evidence_caps(profile: Dict[str, Any]) -> Dict[str, float]:
@@ -239,13 +305,7 @@ def _evidence_caps(profile: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
-def defended_score(client: Any, profile: Dict[str, Any], max_new_tokens: int = 640) -> Dict[str, Any]:
-    safe_profile = {key: profile.get(key) for key in ["skills", "projects", "experience", "education", "relevant_evidence", "suspicious_content", "manipulation_risk_score", "extraction_summary"]}
-    result = client.json(
-        DEFENDED_PROMPT.format(job=JOB_DESCRIPTION, rubric=json.dumps(RUBRIC), profile=json.dumps(safe_profile, ensure_ascii=False)),
-        ["sub_scores", "risk_penalty", "reason", "evidence", "concerns", "uncertainty_reasons"],
-        max_new_tokens=max_new_tokens,
-    )
+def _format_defended_result(result: Dict[str, Any], safe_profile: Dict[str, Any]) -> Dict[str, Any]:
     raw_scores = result.get("sub_scores", {}) if isinstance(result.get("sub_scores"), dict) else {}
     model_sub_scores = {key: round(float(np.clip(_number(raw_scores.get(key)), 0, maximum)), 2) for key, maximum in RUBRIC.items()}
     evidence_caps = _evidence_caps(safe_profile)
@@ -275,6 +335,40 @@ def defended_score(client: Any, profile: Dict[str, Any], max_new_tokens: int = 6
     }
 
 
+def defended_scores(client: Any, profiles: Sequence[Dict[str, Any]], max_new_tokens: int = 640) -> List[EvaluationResult]:
+    safe_profiles = [
+        {key: profile.get(key) for key in ["skills", "projects", "experience", "education", "relevant_evidence", "suspicious_content", "manipulation_risk_score", "extraction_summary"]}
+        for profile in profiles
+    ]
+    prompts = [
+        DEFENDED_PROMPT.format(job=JOB_DESCRIPTION, rubric=json.dumps(RUBRIC), profile=json.dumps(profile, ensure_ascii=False))
+        for profile in safe_profiles
+    ]
+    results = _client_json_many(
+        client,
+        prompts,
+        ["sub_scores", "risk_penalty", "reason", "evidence", "concerns", "uncertainty_reasons"],
+        max_new_tokens,
+    )
+    formatted: List[EvaluationResult] = []
+    for result, safe_profile in zip(results, safe_profiles):
+        if isinstance(result, Exception):
+            formatted.append(result)
+            continue
+        try:
+            formatted.append(_format_defended_result(result, safe_profile))
+        except Exception as exc:
+            formatted.append(exc)
+    return formatted
+
+
+def defended_score(client: Any, profile: Dict[str, Any], max_new_tokens: int = 640) -> Dict[str, Any]:
+    result = defended_scores(client, [profile], max_new_tokens=max_new_tokens)[0]
+    if isinstance(result, Exception):
+        raise result
+    return result
+
+
 def _cache_key(row: pd.Series, text_col: str, stage: str) -> str:
     payload = "|".join([stage, str(row.get("candidate_id", "")), str(row.get("attack_type", "")), str(row.get(text_col, ""))])
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -299,8 +393,12 @@ def run_cached_rows(
     output_path: Path,
     evaluator: Callable[[pd.Series], Dict[str, Any]],
     use_cache: bool = True,
+    batch_size: int = 1,
+    batch_evaluator: Optional[Callable[[Sequence[pd.Series]], Sequence[EvaluationResult]]] = None,
 ) -> pd.DataFrame:
     """Evaluate rows with append-only JSONL checkpointing for Colab disconnects."""
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if not use_cache and output_path.exists():
         _archive_existing_output(output_path, "no_cache")
@@ -323,25 +421,68 @@ def run_cached_rows(
         empty = df.copy()
         empty["pipeline_status"] = pd.Series(dtype=str)
         return empty
-    results = []
-    for _, row in tqdm(df.iterrows(), total=len(df), desc=stage):
+    results: List[Optional[Dict[str, Any]]] = [None] * len(df)
+    pending = []
+    progress = tqdm(total=len(df), desc=stage)
+    for position, (_, row) in enumerate(df.iterrows()):
         key = _cache_key(row, text_col, stage)
         if key in cached:
-            results.append(cached[key])
+            results[position] = cached[key]
+            progress.update(1)
             continue
+        pending.append((position, row, key))
+
+    for start in range(0, len(pending), batch_size):
+        batch = pending[start : start + batch_size]
+        rows = [row for _, row, _ in batch]
         try:
-            evaluated = evaluator(row)
-            item = {**row.to_dict(), **evaluated, "_cache_key": key, "_pipeline_cache_version": PIPELINE_CACHE_VERSION, "pipeline_status": "ok"}
-        except Exception as exc:
-            item = {**row.to_dict(), "_cache_key": key, "_pipeline_cache_version": PIPELINE_CACHE_VERSION, "pipeline_status": "error", "pipeline_error": f"{type(exc).__name__}: {exc}"}
+            if batch_evaluator is not None:
+                evaluated_batch = list(batch_evaluator(rows))
+                if len(evaluated_batch) != len(rows):
+                    raise ValueError(f"Batch evaluator returned {len(evaluated_batch)} results for {len(rows)} rows")
+            else:
+                evaluated_batch = []
+                for row in rows:
+                    try:
+                        evaluated_batch.append(evaluator(row))
+                    except Exception as exc:
+                        evaluated_batch.append(exc)
+        except Exception as batch_exc:
+            # A batch-level failure (for example GPU OOM) must not discard rows
+            # that can still succeed individually.
+            tqdm.write(f"{stage}: batch failed ({type(batch_exc).__name__}: {batch_exc}); retrying rows individually")
+            evaluated_batch = []
+            for row in rows:
+                try:
+                    evaluated_batch.append(evaluator(row))
+                except Exception as exc:
+                    evaluated_batch.append(exc)
+
         with output_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
-        results.append(item)
-    return pd.DataFrame(results)
+            for (position, row, key), evaluated in zip(batch, evaluated_batch):
+                if isinstance(evaluated, Exception):
+                    item = {**row.to_dict(), "_cache_key": key, "_pipeline_cache_version": PIPELINE_CACHE_VERSION, "pipeline_status": "error", "pipeline_error": f"{type(evaluated).__name__}: {evaluated}"}
+                else:
+                    item = {**row.to_dict(), **evaluated, "_cache_key": key, "_pipeline_cache_version": PIPELINE_CACHE_VERSION, "pipeline_status": "ok"}
+                handle.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
+                handle.flush()
+                results[position] = item
+                progress.update(1)
+    progress.close()
+    return pd.DataFrame([item for item in results if item is not None])
 
 
-def run_baseline(client: Any, df: pd.DataFrame, text_col: str, output_path: Path, use_cache: bool = True) -> pd.DataFrame:
-    result = run_cached_rows(df, text_col, "baseline", output_path, lambda row: baseline_score(client, str(row[text_col])), use_cache)
+def run_baseline(client: Any, df: pd.DataFrame, text_col: str, output_path: Path, use_cache: bool = True, batch_size: int = 1) -> pd.DataFrame:
+    result = run_cached_rows(
+        df,
+        text_col,
+        "baseline",
+        output_path,
+        lambda row: baseline_score(client, str(row[text_col])),
+        use_cache,
+        batch_size,
+        lambda rows: baseline_scores(client, [str(row[text_col]) for row in rows]),
+    )
     if "score" not in result.columns:
         result["score"] = np.nan
     if "rank" not in result.columns:
@@ -351,11 +492,29 @@ def run_baseline(client: Any, df: pd.DataFrame, text_col: str, output_path: Path
     return result
 
 
-def run_defended(client: Any, df: pd.DataFrame, text_col: str, output_dir: Path, prefix: str, use_cache: bool = True) -> pd.DataFrame:
-    extracted = run_cached_rows(df, text_col, f"extract_{prefix}", output_dir / f"{prefix}_extraction.jsonl", lambda row: extract_profile(client, str(row[text_col])), use_cache)
+def run_defended(client: Any, df: pd.DataFrame, text_col: str, output_dir: Path, prefix: str, use_cache: bool = True, batch_size: int = 1) -> pd.DataFrame:
+    extracted = run_cached_rows(
+        df,
+        text_col,
+        f"extract_{prefix}",
+        output_dir / f"{prefix}_extraction.jsonl",
+        lambda row: extract_profile(client, str(row[text_col])),
+        use_cache,
+        batch_size,
+        lambda rows: extract_profiles(client, [str(row[text_col]) for row in rows]),
+    )
     valid = extracted[extracted["pipeline_status"] == "ok"].copy()
     valid = valid.rename(columns={"json_retry_count": "extraction_json_retry_count"})
-    scored = run_cached_rows(valid, text_col, f"defended_{prefix}", output_dir / f"{prefix}_defended.jsonl", lambda row: defended_score(client, row.to_dict()), use_cache)
+    scored = run_cached_rows(
+        valid,
+        text_col,
+        f"defended_{prefix}",
+        output_dir / f"{prefix}_defended.jsonl",
+        lambda row: defended_score(client, row.to_dict()),
+        use_cache,
+        batch_size,
+        lambda rows: defended_scores(client, [row.to_dict() for row in rows]),
+    )
     if "score" not in scored.columns:
         scored["score"] = np.nan
     if "rank" not in scored.columns:

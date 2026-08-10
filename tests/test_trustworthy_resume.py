@@ -12,8 +12,9 @@ from trustworthy_resume.data import (
     mask_sensitive_attributes,
     sensitive_leakage_found,
 )
-from trustworthy_resume.model import DeterministicTestClient, first_balanced_json_object, select_device
-from trustworthy_resume.pipeline import RUBRIC, defended_score, extract_profile, run_cached_rows
+from trustworthy_resume.config import ExperimentConfig
+from trustworthy_resume.model import DeterministicTestClient, QwenClient, first_balanced_json_object, select_device
+from trustworthy_resume.pipeline import RUBRIC, defended_score, extract_profile, run_baseline, run_cached_rows
 
 
 def test_balanced_json_parser_handles_fenced_text():
@@ -23,6 +24,35 @@ def test_balanced_json_parser_handles_fenced_text():
 
 def test_device_auto_resolves_to_supported_device():
     assert select_device("auto") in {"cuda", "mps", "cpu"}
+
+
+def test_batch_size_must_be_positive():
+    try:
+        ExperimentConfig(batch_size=0)
+    except ValueError as exc:
+        assert "batch_size" in str(exc)
+    else:
+        raise AssertionError("Expected an invalid batch size to raise ValueError")
+
+
+def test_qwen_json_many_retries_only_invalid_outputs():
+    client = QwenClient.__new__(QwenClient)
+    batch_sizes = []
+
+    def fake_generate_many(prompts, max_new_tokens=420):
+        batch_sizes.append(len(prompts))
+        if len(batch_sizes) == 1:
+            return ['{"score": 10}', "not json"]
+        return ['{"score": 20}']
+
+    client.generate_many = fake_generate_many
+    results = client.json_many(["first", "second"], ["score"], retries=1)
+
+    assert batch_sizes == [2, 1]
+    assert results[0]["score"] == 10
+    assert results[0]["_json_retry_count"] == 0
+    assert results[1]["score"] == 20
+    assert results[1]["_json_retry_count"] == 1
 
 
 def test_masking_removes_synthetic_sensitive_values_and_name():
@@ -150,3 +180,51 @@ def test_stale_jsonl_cache_is_archived_not_deleted(tmp_path):
     assert '"candidate_id": "old"' in archives[0].read_text(encoding="utf-8")
     assert result.iloc[0]["candidate_id"] == "new"
     assert output_path.exists()
+
+
+def test_baseline_batches_uncached_rows_and_preserves_order(tmp_path):
+    class RecordingClient(DeterministicTestClient):
+        def __init__(self):
+            self.batch_sizes = []
+
+        def json_many(self, prompts, required_keys, max_new_tokens=420, retries=2):
+            self.batch_sizes.append(len(prompts))
+            return super().json_many(prompts, required_keys, max_new_tokens=max_new_tokens, retries=retries)
+
+    client = RecordingClient()
+    df = pd.DataFrame([
+        {"candidate_id": f"C{index}", "attack_type": "clean", "resume_text": f"Skills: Python API project {index}"}
+        for index in range(5)
+    ])
+    output_path = tmp_path / "baseline.jsonl"
+
+    first = run_baseline(client, df, "resume_text", output_path, use_cache=True, batch_size=2)
+    assert client.batch_sizes == [2, 2, 1]
+    assert first["candidate_id"].tolist() == df["candidate_id"].tolist()
+    assert len(output_path.read_text(encoding="utf-8").splitlines()) == 5
+
+    client.batch_sizes.clear()
+    second = run_baseline(client, df, "resume_text", output_path, use_cache=True, batch_size=2)
+    assert client.batch_sizes == []
+    assert second["candidate_id"].tolist() == df["candidate_id"].tolist()
+
+
+def test_batched_rows_keep_per_row_errors(tmp_path):
+    df = pd.DataFrame([
+        {"candidate_id": f"C{index}", "attack_type": "clean", "resume_text": f"resume {index}"}
+        for index in range(3)
+    ])
+
+    result = run_cached_rows(
+        df,
+        "resume_text",
+        "test_batch",
+        tmp_path / "batched.jsonl",
+        lambda row: {"score": 1},
+        use_cache=True,
+        batch_size=3,
+        batch_evaluator=lambda rows: [{"score": 1}, ValueError("bad row"), {"score": 3}],
+    )
+
+    assert result["pipeline_status"].tolist() == ["ok", "error", "ok"]
+    assert "ValueError: bad row" in result.iloc[1]["pipeline_error"]

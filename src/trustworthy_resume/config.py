@@ -20,9 +20,14 @@ class ExperimentConfig:
     dtype: str = "auto"
     shortlist_fraction: float = 0.25
     boundary_margin: float = 5.0
+    batch_size: int = 4
     use_cache: bool = True
     backend: str = "qwen"
     csv_data_path: str = ""
+
+    def __post_init__(self) -> None:
+        if self.batch_size < 1:
+            raise ValueError("batch_size must be at least 1")
 
     @property
     def output_dir(self) -> Path:

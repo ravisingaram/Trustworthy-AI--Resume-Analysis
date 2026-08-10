@@ -23,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reliability-samples", type=int, default=10)
     parser.add_argument("--repeatability-repeats", type=int, default=3)
     parser.add_argument("--model-name", default="Qwen/Qwen3-0.6B")
+    parser.add_argument("--batch-size", type=int, default=16, help="Number of prompts generated together. Reduce this if the GPU runs out of memory.")
     parser.add_argument("--csv-data-path", default="", help="Optional CSV file path to load real resume candidates instead of synthetic data.")
     parser.add_argument("--stage", choices=["all", "prepare", "baseline", "defended", "clean_attacked_defended", "final"], default="all", help="Run one stage: prepare, baseline, defended, clean_attacked_defended, final, or all.")
     parser.add_argument("--no-cache", action="store_true")
@@ -41,6 +42,7 @@ if __name__ == "__main__":
         repeatability_samples=args.reliability_samples,
         repeatability_repeats=args.repeatability_repeats,
         model_name=args.model_name,
+        batch_size=args.batch_size,
         csv_data_path=args.csv_data_path,
         stage=args.stage,
         use_cache=not args.no_cache,

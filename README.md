@@ -14,6 +14,7 @@ This implementation evaluates a Qwen-based resume screener for robustness, fairn
 - Qualification-ranking metrics, pipeline failure rates, and JSON retry rates.
 - Human-review policy, review queue, audit-oriented outputs, and run manifest.
 - JSONL checkpoints so interrupted Colab runs can resume.
+- Batched model inference with per-row JSON retries and checkpointed results.
 
 ## Local Mac run
 
@@ -24,10 +25,11 @@ cd Trustworthy-AI--Resume-Analysis
 python3 -m pip install -r requirements.txt
 PYTHONPATH=src python3 -m pytest -q
 python3 run_experiment.py --backend test --run-id smoke_test --num-candidates 8 --fairness-templates 2 --reliability-samples 2
-python3 run_experiment.py --backend qwen --run-id qwen_n100_mac
+python3 run_experiment.py --backend qwen --run-id qwen_n100_mac --batch-size 4
 ```
 
 The `test` backend validates the complete pipeline but must never be used for report metrics. Use `qwen` for the real experiment.
+The default batch size is 4. On a CUDA GPU, try `--batch-size 8` for higher throughput; reduce it to 2 or 1 if generation runs out of memory. Cached rows are excluded before batches are formed.
 
 ## Google Colab T4 run
 
