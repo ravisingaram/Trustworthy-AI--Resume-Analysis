@@ -1,0 +1,32 @@
+{
+  "model_name": "Qwen/Qwen3-0.6B",
+  "output_root": "/Users/renjieluo/Desktop/SUTD/class/Trustworthy_AI/Trustworthy-AI--Resume-Analysis/outputs",
+  "run_id": "qwen_v2_n100_mps",
+  "num_candidates": 100,
+  "fairness_templates_per_attribute": 10,
+  "repeatability_samples": 10,
+  "repeatability_repeats": 3,
+  "random_seed": 42,
+  "device": "mps",
+  "dtype": "auto",
+  "shortlist_fraction": 0.25,
+  "boundary_margin": 5.0,
+  "use_cache": true,
+  "backend": "qwen",
+  "status": "complete",
+  "error": "",
+  "device_resolved": "mps",
+  "python": "3.9.6 (default, Jan  9 2026, 11:03:41) \n[Clang 17.0.0 (clang-1700.6.4.2)]",
+  "platform": "macOS-26.3.1-arm64-arm-64bit",
+  "package_versions": {
+    "torch": "2.8.0",
+    "transformers": "4.57.6"
+  },
+  "prompt_sha256": {
+    "baseline": "16684c562e4fd46a14e62f688f9d42c2549074e0989ead9e242e8f692742d64b",
+    "extraction": "52fefaaf3995998fa55de788e30762af97c314990c917f251f1cb7c7485de3d2",
+    "defended": "4667f5cf4fef29f2d4655de78785d2f5ef21f12c421cd18f32e30afee26981e9"
+  },
+  "updated_at_utc": "2026-08-03T09:59:54.386003+00:00",
+  "note": "Synthetic research benchmark only; not a production hiring system."
+}

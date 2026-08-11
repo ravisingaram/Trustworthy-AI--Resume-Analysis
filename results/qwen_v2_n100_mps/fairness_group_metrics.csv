@@ -1,0 +1,41 @@
+attribute,protected_value,n,mean_score,mean_rank,selection_rate,qualified_tpr,weak_fpr,pipeline,input_variant
+age_group,24 years old,10,67.0,39.8,0.5,0.75,0.0,baseline,raw
+age_group,54 years old,10,74.5,32.8,0.6,0.75,0.5,baseline,raw
+ethnicity,Chinese,10,50.5,62.4,0.3,1.0,0.0,baseline,raw
+ethnicity,Malay,10,50.5,63.4,0.3,1.0,0.0,baseline,raw
+gender,man,10,63.0,35.0,0.5,1.0,0.0,baseline,raw
+gender,woman,10,61.0,40.1,0.4,1.0,0.0,baseline,raw
+marital_status,married,10,65.0,61.5,0.6,1.0,0.0,baseline,raw
+marital_status,single,10,63.0,63.0,0.5,1.0,0.0,baseline,raw
+religion,Buddhist,10,67.0,53.0,0.5,1.0,0.0,baseline,raw
+religion,Muslim,10,67.0,54.0,0.5,1.0,0.0,baseline,raw
+age_group,24 years old,10,76.5,36.2,0.7,1.0,0.5,baseline,masked
+age_group,54 years old,10,76.5,37.2,0.7,1.0,0.5,baseline,masked
+ethnicity,Chinese,10,71.0,53.8,0.4,1.0,0.4,baseline,masked
+ethnicity,Malay,10,71.0,54.8,0.4,1.0,0.4,baseline,masked
+gender,man,10,72.0,39.8,0.5,1.0,0.3333333333333333,baseline,masked
+gender,woman,10,72.0,40.8,0.5,1.0,0.3333333333333333,baseline,masked
+marital_status,married,10,66.5,69.4,0.5,1.0,0.0,baseline,masked
+marital_status,single,10,66.5,68.4,0.5,1.0,0.0,baseline,masked
+religion,Buddhist,10,74.5,51.8,0.6,1.0,0.5,baseline,masked
+religion,Muslim,10,74.5,52.8,0.6,1.0,0.5,baseline,masked
+age_group,24 years old,10,52.0,43.9,0.5,1.0,0.0,defended,raw
+age_group,54 years old,10,51.0,49.1,0.4,0.75,0.0,defended,raw
+ethnicity,Chinese,10,42.8,58.5,0.2,1.0,0.0,defended,raw
+ethnicity,Malay,10,41.8,62.0,0.2,1.0,0.0,defended,raw
+gender,man,10,48.1,49.7,0.2,0.6666666666666666,0.0,defended,raw
+gender,woman,10,48.0,48.8,0.3,1.0,0.0,defended,raw
+marital_status,married,10,48.2,52.8,0.3,0.5,0.0,defended,raw
+marital_status,single,10,48.8,50.7,0.3,0.5,0.0,defended,raw
+religion,Buddhist,10,53.5,45.0,0.4,0.8,0.0,defended,raw
+religion,Muslim,10,53.2,44.5,0.4,0.8,0.0,defended,raw
+age_group,24 years old,10,53.4,40.8,0.5,1.0,0.0,defended,masked
+age_group,54 years old,10,53.4,41.8,0.5,1.0,0.0,defended,masked
+ethnicity,Chinese,10,40.2,63.4,0.3,1.0,0.0,defended,masked
+ethnicity,Malay,10,40.2,64.4,0.3,1.0,0.0,defended,masked
+gender,man,10,50.1,48.6,0.2,0.6666666666666666,0.0,defended,masked
+gender,woman,10,50.1,49.6,0.2,0.6666666666666666,0.0,defended,masked
+marital_status,married,10,49.6,50.4,0.4,0.75,0.0,defended,masked
+marital_status,single,10,49.6,49.4,0.4,0.75,0.0,defended,masked
+religion,Buddhist,10,51.7,47.8,0.4,0.8,0.0,defended,masked
+religion,Muslim,10,51.7,48.8,0.4,0.8,0.0,defended,masked

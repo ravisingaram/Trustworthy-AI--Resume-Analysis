@@ -37,6 +37,12 @@ GitHub cloning is optional. On your Mac, compress the whole project folder into 
 
 For a first GPU check, use 4 candidates, 1 fairness template, and 1 reliability sample. The report configuration uses 100 candidates, 10 matched-pair templates per protected attribute, and 10 reliability samples. Reusing the same `run_id` resumes completed JSONL rows.
 
+## Committed formal results
+
+The curated report-ready artifacts from the completed 100-candidate Apple MPS run are versioned under `results/qwen_v2_n100_mps/`. Start with `headline_metrics.json` for the main findings and `run_manifest.json` for the exact model, device, package versions, prompt hashes, and configuration.
+
+The full `outputs/` directory remains ignored because it contains large resumable JSONL checkpoints and generated resume records. These raw artifacts can be reproduced with the recorded configuration and are intentionally kept separate from the committed result summaries.
+
 ## Important output files
 
 - `run_manifest.json`: environment, model, device, run status, and configuration.

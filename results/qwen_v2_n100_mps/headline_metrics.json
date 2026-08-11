@@ -1,0 +1,13 @@
+{
+  "num_clean": 100,
+  "num_attacked": 110,
+  "num_counterfactual_variants": 100,
+  "baseline_asr": 0.990909090909091,
+  "defended_asr": 0.38181818181818183,
+  "mean_counterfactual_gap_raw_defended": 1.08,
+  "mean_counterfactual_gap_masked_defended": 0.0,
+  "evidence_validity_rate": 0.2871666666666666,
+  "metamorphic_pass_rate": 0.6,
+  "repeatability_exact_agreement_rate": 1.0,
+  "human_review_required_rate": 0.92
+}
