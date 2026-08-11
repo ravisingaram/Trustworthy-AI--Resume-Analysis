@@ -1,0 +1,14 @@
+{
+  "shortlist_threshold": 62.0,
+  "shortlist_fraction": 0.25,
+  "boundary_margin": 5.0,
+  "automated_final_hiring_decision": false,
+  "mandatory_review_triggers": [
+    "pipeline error",
+    "risk score >= 1",
+    "near threshold",
+    "evidence validity < 0.8",
+    "protected attribute in explanation",
+    "JSON retry"
+  ]
+}

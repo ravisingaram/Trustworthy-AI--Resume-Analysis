@@ -1,0 +1,3 @@
+pipeline,spearman_score_vs_qualification,kendall_score_vs_qualification,strong_over_weak_pairwise_accuracy,ndcg,pipeline_failure_rate,json_retry_rate
+baseline,0.7769808421929293,0.7237719132993463,1.0,0.9310924423482972,0.0,0.0
+defended,0.8937273961756268,0.7812122514942831,1.0,0.9891233438267784,0.0,0.01
